@@ -149,8 +149,14 @@ vite.config.ts.timestamp-*
 .turbo
 .superpowers/
 
-# cryptofx
-data/
-reports/
+# cryptofx (anchored: cryptofx/data/ is a package, not a cache)
+/data/
+/reports/
 *.db
 .superpowers/
+
+# python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
