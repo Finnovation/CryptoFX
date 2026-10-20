@@ -162,13 +162,22 @@ and a test update.
 
 ```python
 class Executor(Protocol):
-    def submit(self, order: Order) -> Fill | Rejected
+    def submit(self, order: Order) -> Fill | Queued | Rejected
+    def on_bar(self, symbol: str, bar: pd.Series) -> list[Trade]
     def positions(self) -> list[Position]
+    def pending(self) -> list[Order]
+    def fills(self) -> list[Fill]
     def equity(self) -> float
 ```
 
-- **BacktestExecutor**: fills at next bar open. Fee 0.1% taker. Slippage
-  0.05% plus volume-impact term. Deterministic.
+Fill latency belongs to the executor, not the engine: a backtest or paper
+executor queues on `submit` and fills on the next `on_bar`; a live executor
+may fill immediately. The engine only reads `fills()` and `pending()`.
+
+- **BacktestExecutor**: queues on submit, fills at the next bar's open, then
+  stop-checks that same bar (a crash wick on the entry bar fires the stop).
+  Forward-filled gap bars never fill orders or trigger stops. Fee 0.1% taker.
+  Slippage 0.05% plus volume-impact term capped at 1%. Deterministic.
 - **PaperExecutor**: same fill model as backtest but driven by live candles on
   a schedule. Writes to the same TradeLog with `mode=paper`.
 - **LiveExecutor**: ccxt Kraken. Market orders only in v1, with a sanity check
@@ -178,9 +187,12 @@ class Executor(Protocol):
 
 ### 4.6 Engine
 
-- `Engine(mode, symbols, tf, agents, allocator, risk, executor)`.
-- `step(bar_ts)`: fetch candles up to ts -> regime -> signals -> allocate ->
-  risk check -> execute -> log.
+- `Engine(agents, regime_agent, allocator, risk, executor, symbols, tf, warmup)`.
+- `step(windows)`: one closed bar per symbol (each window is the trailing
+  `warmup` bars) -> executor.on_bar -> risk.update_equity -> regime ->
+  signals -> allocate -> risk check -> executor.submit -> equity row.
+- `run(candles)` drives `step` from cached candles; the paper/live loop drives
+  it once per closed candle.
 - Backtest: iterate bars. Paper/live: APScheduler or a plain loop with sleep
   aligned to candle close plus 30s.
 - All state persists to SQLite so a restart resumes cleanly.
@@ -189,7 +201,8 @@ class Executor(Protocol):
 
 - Walk-forward: train window 180 days, test window 60 days, roll by 60 days.
   Parameters are chosen on train, evaluated on test, only test results are
-  reported.
+  reported. One executor and one RiskManager persist across test windows so
+  open positions, drawdown peaks and halts carry over like a continuous run.
 - Metrics per run and per agent: total return, CAGR, Sharpe (daily, rf=0),
   Sortino, max drawdown, profit factor, win rate, avg win/loss, trade count,
   exposure.

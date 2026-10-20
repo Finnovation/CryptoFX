@@ -60,5 +60,8 @@ DataFeed -> RegimeAgent + {Trend, MeanRev, Breakout} -> Allocator -> RiskManager
 
 ## Status
 
-Plan 1 (backtest core) is complete. Plan 2 adds the SQLite trade log, paper
+Plan 1 (backtest core) is complete and reviewed. The first real backtest is
+recorded as NOT RUN in `docs/superpowers/results/` because the build
+environment could not reach any exchange API; run the two commands above on a
+machine that can. Plan 2 adds the SQLite trade log, paper
 trading loop, HTML report, go-live gate command and the Kraken live executor.
