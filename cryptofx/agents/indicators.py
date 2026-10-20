@@ -13,25 +13,29 @@ def sma(close: pd.Series, n: int) -> pd.Series:
 
 
 def _wilder(values: pd.Series, n: int) -> pd.Series:
-    """Wilder smoothing seeded with the SMA of the first n values."""
-    out = pd.Series(np.nan, index=values.index, dtype=float)
+    """Wilder smoothing seeded with the SMA of the first n non-NaN values."""
     arr = values.to_numpy(dtype=float)
+    out = np.full(len(arr), np.nan)
     if len(arr) < n:
-        return out
-    # find first index where n consecutive non-NaN values exist
+        return pd.Series(out, index=values.index)
+    valid = ~np.isnan(arr)
+    # first index where n consecutive valid values start
+    run = 0
     start = None
-    for i in range(len(arr) - n + 1):
-        if not np.isnan(arr[i : i + n]).any():
-            start = i
+    for i, ok in enumerate(valid):
+        run = run + 1 if ok else 0
+        if run == n:
+            start = i - n + 1
             break
     if start is None:
-        return out
+        return pd.Series(out, index=values.index)
     prev = arr[start : start + n].mean()
-    out.iloc[start + n - 1] = prev
+    out[start + n - 1] = prev
+    k = (n - 1) / n
     for i in range(start + n, len(arr)):
-        prev = (prev * (n - 1) + arr[i]) / n
-        out.iloc[i] = prev
-    return out
+        prev = prev * k + arr[i] / n
+        out[i] = prev
+    return pd.Series(out, index=values.index)
 
 
 def rsi(close: pd.Series, n: int = 14) -> pd.Series:
