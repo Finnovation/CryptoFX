@@ -100,3 +100,32 @@ def test_engine_aligns_symbols_on_shared_timestamps():
     curve = eng.run({SYM: a, "ETH/USDT": b})
     assert len(curve) == 250 - 100
     assert "regime_ETH/USDT" in curve.columns
+
+
+class AlwaysLong:
+    name = "trend"
+
+    def signal(self, candles: pd.DataFrame, regime: Regime) -> Signal:
+        return Signal(direction=Direction.LONG, confidence=1.0, reason="stub")
+
+
+def test_engine_respects_max_positions_with_many_symbols():
+    syms = [f"S{i}/USDT" for i in range(5)]
+    candles = {s: uptrend(n=300, noise=0.5) for s in syms}
+    eng = Engine(
+        [AlwaysLong()], RegimeAgent(), Allocator(), RiskManager(), BacktestExecutor(100_000.0),
+        syms, "1h", warmup=100,
+    )
+    curve = eng.run(candles)
+    assert curve.n_positions.max() == 3
+    assert any(r[2] == "max positions" for r in eng.rejections)
+
+
+def test_engine_step_returns_row_and_queues_orders():
+    df = uptrend(n=300)
+    eng = make_engine([AlwaysLong()])
+    windows = {SYM: df.iloc[0:200]}
+    row = eng.step(windows)
+    assert set(row) == {"ts", "equity", "cash", "n_positions", f"regime_{SYM}"}
+    assert row["ts"] == df.ts.iloc[199]
+    assert len(eng.executor.pending()) == 1

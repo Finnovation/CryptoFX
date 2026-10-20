@@ -43,6 +43,7 @@ def build_engine(
     symbols: list[str],
     tf: str,
     warmup: int = DEFAULT_WARMUP,
+    risk: RiskManager | None = None,
 ) -> Engine:
     agents = [
         TrendAgent(fast=params.trend_fast, slow=params.trend_slow),
@@ -50,8 +51,8 @@ def build_engine(
         BreakoutAgent(),
     ]
     return Engine(
-        agents, RegimeAgent(), Allocator(threshold=params.threshold), RiskManager(), executor,
-        symbols, tf, warmup=warmup,
+        agents, RegimeAgent(), Allocator(threshold=params.threshold), risk or RiskManager(),
+        executor, symbols, tf, warmup=warmup,
     )
 
 
@@ -88,13 +89,21 @@ def run_backtest(
     initial_equity: float = 500.0,
     tf: str = "1h",
     warmup: int = DEFAULT_WARMUP,
+    executor: Executor | None = None,
+    risk: RiskManager | None = None,
 ) -> BacktestResult:
+    """Run one backtest. Pass ``executor``/``risk`` to continue from existing
+    state (walk-forward uses this so positions, pending orders, drawdown peaks
+    and halts survive window boundaries)."""
     symbols = list(candles)
-    engine = build_engine(params, BacktestExecutor(initial_equity), symbols, tf, warmup=warmup)
+    executor = executor or BacktestExecutor(initial_equity)
+    trades_before = len(executor.trades())
+    engine = build_engine(params, executor, symbols, tf, warmup=warmup, risk=risk)
     curve = engine.run(candles)
-    metrics = compute_metrics(curve.equity, engine.trades, curve.n_positions)
-    bench = benchmark_for(candles, curve.index, initial_equity)
+    trades = engine.trades[trades_before:]
+    metrics = compute_metrics(curve.equity, trades, curve.n_positions)
+    bench = benchmark_for(candles, curve.index, float(curve.equity.iloc[0]))
     return BacktestResult(
-        equity=curve, trades=engine.trades, metrics=metrics, benchmark=bench, params=params,
+        equity=curve, trades=trades, metrics=metrics, benchmark=bench, params=params,
         risk_events=list(engine.risk_events),
     )

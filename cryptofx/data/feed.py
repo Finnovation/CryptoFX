@@ -26,11 +26,13 @@ class DataFeed:
         fetch_fn: FetchFn | None = None,
         retries: int = 3,
         backoff_s: float = 1.0,
+        now_fn: Callable[[], int] | None = None,
     ) -> None:
         self.exchange_id = exchange_id
         self.root = Path(root)
         self.retries = retries
         self.backoff_s = backoff_s
+        self._now_ms = now_fn or (lambda: int(time.time() * 1000))
         self._fetch = fetch_fn or self._ccxt_fetch_fn()
 
     def _ccxt_fetch_fn(self) -> FetchFn:
@@ -71,6 +73,9 @@ class DataFeed:
             if len(page) < PAGE_LIMIT or next_ms <= since_ms:
                 break
             since_ms = next_ms
+        # Drop the still-forming candle: a bar is closed only once ts + tf <= now.
+        closed_before = self._now_ms() - TF_MS[tf]
+        new_rows = [r for r in new_rows if r[0] <= closed_before]
         if not new_rows:
             return 0
         new = pd.DataFrame(new_rows, columns=cache.CANDLE_COLUMNS)

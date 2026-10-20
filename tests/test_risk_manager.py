@@ -124,3 +124,25 @@ def test_trail_stop_never_lowers():
 
 def test_risk_fraction():
     assert RiskManager().risk_fraction() == 0.01
+
+
+def test_counts_pending_buys_toward_max_positions():
+    held = [pos("X0/USDT"), pos("X1/USDT")]
+    pending = [buy(symbol="X2/USDT")]
+    res = RiskManager().check(buy(symbol="X3/USDT"), PortfolioView(equity=1000.0, positions=held, pending_buys=pending))
+    assert isinstance(res, Rejected) and res.reason == "max positions"
+    # a pending buy for an already-held symbol does not consume a slot
+    res2 = RiskManager().check(
+        buy(symbol="X3/USDT"),
+        PortfolioView(equity=1000.0, positions=held, pending_buys=[buy(symbol="X0/USDT")]),
+    )
+    assert isinstance(res2, Approved)
+
+
+def test_rejects_when_committed_exceeds_cash():
+    pending = [buy(symbol="X1/USDT", size=200.0), buy(symbol="X2/USDT", size=200.0)]
+    res = RiskManager().check(
+        buy(symbol="X3/USDT", size=200.0),
+        PortfolioView(equity=1000.0, positions=[], pending_buys=pending, cash=500.0),
+    )
+    assert isinstance(res, Rejected) and res.reason == "insufficient cash"

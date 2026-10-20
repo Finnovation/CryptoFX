@@ -71,3 +71,16 @@ def test_walk_forward_stitches_equity_continuously():
         res.stitched_equity.iloc[-1] / res.stitched_equity.iloc[0] - 1
     )
     assert res.benchmark is not None
+
+
+def test_walk_forward_carries_positions_and_risk_across_windows():
+    df = uptrend(n=600, noise=1.0)
+    res = walk_forward(
+        {SYM: df}, df.ts.iloc[0].to_pydatetime(), df.ts.iloc[-1].to_pydatetime(),
+        grid=[Params(threshold=0.6)], train_days=8, test_days=4, warmup=100, initial_equity=500.0,
+    )
+    # trend agent stays long through a clean uptrend, so a position spans at least one boundary
+    assert any(w["end_positions"] > 0 for w in res.windows[:-1])
+    for prev, nxt in zip(res.windows, res.windows[1:]):
+        assert nxt["start_positions"] == prev["end_positions"]
+    assert res.risk_events is not None

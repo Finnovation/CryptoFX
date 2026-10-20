@@ -1,10 +1,14 @@
-"""Deterministic simulated executor with fees, slippage and stop handling."""
+"""Deterministic simulated executor with fees, slippage and stop handling.
+
+Orders queue on ``submit`` and fill at the next bar's open, so the Engine does
+not have to know about fill latency: a paper or live executor can plug in and
+fill however its venue does."""
 
 import math
 
 import pandas as pd
 
-from cryptofx.core.models import Fill, Order, Position, Rejected, Side, Trade
+from cryptofx.core.models import Fill, Order, Position, Queued, Rejected, Side, Trade
 from cryptofx.risk.limits import FEE_RATE, MAX_IMPACT, SLIPPAGE_RATE
 
 
@@ -21,11 +25,24 @@ class BacktestExecutor:
         self._bars: dict[str, pd.Series] = {}
         self._positions: dict[str, Position] = {}
         self._entry_fees: dict[str, float] = {}
+        self._pending: list[Order] = []
+        self._fills: list[Fill] = []
+        self._rejections: list[tuple[Order, str]] = []
         self._trades: list[Trade] = []
 
-    # -- reference data -------------------------------------------------
+    # -- bar advance ----------------------------------------------------
     def on_bar(self, symbol: str, bar: pd.Series) -> list[Trade]:
         self._bars[symbol] = bar
+        if bool(bar.get("gap", False)):
+            return []  # forward-filled bar: no price ever traded here
+        mine = [o for o in self._pending if o.symbol == symbol]
+        self._pending = [o for o in self._pending if o.symbol != symbol]
+        for order in mine:
+            result = self._buy(order, bar) if order.side == Side.BUY else self._sell(order, bar)
+            if isinstance(result, Rejected):
+                self._rejections.append((order, result.reason))
+            else:
+                self._fills.append(result)
         pos = self._positions.get(symbol)
         if pos is None or float(bar["low"]) > pos.stop_price:
             return []
@@ -38,6 +55,12 @@ class BacktestExecutor:
             pos.stop_price = stop_price
 
     # -- orders ---------------------------------------------------------
+    def submit(self, order: Order) -> Fill | Queued | Rejected:
+        if order.side == Side.BUY and order.stop_price is None:
+            return Rejected(reason="missing stop")
+        self._pending.append(order)
+        return Queued(order=order)
+
     def _impact(self, bar: pd.Series, size_quote: float) -> float:
         volume = float(bar["volume"])
         open_ = float(bar["open"])
@@ -45,17 +68,8 @@ class BacktestExecutor:
             return MAX_IMPACT
         return min(MAX_IMPACT, 0.1 * size_quote / (volume * open_))
 
-    def submit(self, order: Order) -> Fill | Rejected:
-        bar = self._bars.get(order.symbol)
-        if bar is None:
-            return Rejected(reason="no reference bar")
-        if order.side == Side.BUY:
-            return self._buy(order, bar)
-        return self._sell(order, bar)
-
     def _buy(self, order: Order, bar: pd.Series) -> Fill | Rejected:
-        if order.stop_price is None:
-            return Rejected(reason="missing stop")
+        assert order.stop_price is not None
         price = float(bar["open"]) * (1 + self.slippage_rate + self._impact(bar, order.size_quote))
         fee = order.size_quote * self.fee_rate
         if self._cash < order.size_quote + fee:
@@ -122,6 +136,15 @@ class BacktestExecutor:
     # -- state ----------------------------------------------------------
     def positions(self) -> list[Position]:
         return list(self._positions.values())
+
+    def pending(self) -> list[Order]:
+        return list(self._pending)
+
+    def fills(self) -> list[Fill]:
+        return list(self._fills)
+
+    def rejections(self) -> list[tuple[Order, str]]:
+        return list(self._rejections)
 
     def cash(self) -> float:
         return self._cash

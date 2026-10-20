@@ -1,4 +1,7 @@
-"""Bar-by-bar engine: candles -> regime -> agents -> allocator -> risk -> executor."""
+"""Bar-by-bar engine: candles -> regime -> agents -> allocator -> risk -> executor.
+
+``step`` is the unit of work for every mode. Backtest drives it from cached
+candles via ``run``; a paper or live loop drives it once per closed candle."""
 
 import pandas as pd
 
@@ -6,7 +9,7 @@ from cryptofx.agents.base import Agent
 from cryptofx.agents.indicators import atr
 from cryptofx.agents.regime import RegimeAgent
 from cryptofx.core.allocator import Allocator
-from cryptofx.core.models import Fill, Order, Rejected, Side, Trade
+from cryptofx.core.models import Fill, Order, Side, Trade
 from cryptofx.data.feed import DataFeed
 from cryptofx.exec.base import Executor
 from cryptofx.risk.limits import MAX_GAP_BARS
@@ -34,9 +37,12 @@ class Engine:
         self.symbols = symbols
         self.tf = tf
         self.warmup = warmup
-        self.fills: list[Fill] = []
         self.rejections: list[tuple[pd.Timestamp, Order, str]] = []
-        self._pending: list[Order] = []
+        self._seen_exec_rejections = len(executor.rejections())
+
+    @property
+    def fills(self) -> list[Fill]:
+        return self.executor.fills()
 
     @property
     def trades(self) -> list[Trade]:
@@ -72,37 +78,35 @@ class Engine:
         n = len(next(iter(data.values())))
         rows = []
         for i in range(self.warmup, n):
-            ts = data[self.symbols[0]].ts.iloc[i]
-            # 1. reference bar + stops
-            for sym in self.symbols:
-                self.executor.on_bar(sym, data[sym].iloc[i])
-            # 2. pending orders from previous bar
-            for order in self._pending:
-                result = self.executor.submit(order)
-                if isinstance(result, Rejected):
-                    self.rejections.append((ts, order, result.reason))
-                else:
-                    self.fills.append(result)
-            self._pending = []
-            # 3. risk state
-            self.risk.update_equity(ts.to_pydatetime(), self.executor.equity())
-            # 4. decisions for next bar
-            held = {p.symbol: p for p in self.executor.positions()}
-            regimes = {}
-            for sym in self.symbols:
-                window = data[sym].iloc[max(0, i + 1 - self.warmup) : i + 1]
-                regimes[sym] = self._decide(sym, window, held, ts)
-            # 5. equity curve
-            row = {
-                "ts": ts,
-                "equity": self.executor.equity(),
-                "cash": self.executor.cash(),
-                "n_positions": len(self.executor.positions()),
+            windows = {
+                sym: data[sym].iloc[max(0, i + 1 - self.warmup) : i + 1] for sym in self.symbols
             }
-            for sym in self.symbols:
-                row[f"regime_{sym}"] = regimes[sym]
-            rows.append(row)
+            rows.append(self.step(windows))
         return pd.DataFrame(rows).set_index("ts")
+
+    def step(self, windows: dict[str, pd.DataFrame]) -> dict:
+        """One bar for every symbol. Each window ends at the bar just closed."""
+        ts = windows[self.symbols[0]].ts.iloc[-1]
+        # 1. advance executor: queued orders fill at this bar's open, stops are checked
+        for sym in self.symbols:
+            self.executor.on_bar(sym, windows[sym].iloc[-1])
+        new_rejections = self.executor.rejections()[self._seen_exec_rejections :]
+        self.rejections.extend((ts, o, r) for o, r in new_rejections)
+        self._seen_exec_rejections += len(new_rejections)
+        # 2. risk state on marked equity
+        self.risk.update_equity(ts.to_pydatetime(), self.executor.equity())
+        # 3. decisions for the next bar
+        held = {p.symbol: p for p in self.executor.positions()}
+        regimes = {sym: self._decide(sym, windows[sym], held, ts) for sym in self.symbols}
+        row = {
+            "ts": ts,
+            "equity": self.executor.equity(),
+            "cash": self.executor.cash(),
+            "n_positions": len(self.executor.positions()),
+        }
+        for sym in self.symbols:
+            row[f"regime_{sym}"] = regimes[sym]
+        return row
 
     def _decide(self, sym: str, window: pd.DataFrame, held: dict, ts: pd.Timestamp) -> str:
         if DataFeed.max_gap_bars(window) > MAX_GAP_BARS:
@@ -110,18 +114,22 @@ class Engine:
         regime = self.regime_agent.classify(window)
         signals = {a.name: a.signal(window, regime) for a in self.agents}
         pos = held.get(sym)
+        pending_for_sym = [o for o in self.executor.pending() if o.symbol == sym]
         if pos is not None:
             a = atr(window.high, window.low, window.close, self.allocator.atr_n).iloc[-1]
             if not pd.isna(a):
                 new_stop = self.risk.trail_stop(pos, float(window.close.iloc[-1]), float(a))
                 if new_stop is not None:
                     self.executor.set_stop(sym, new_stop)
-            if self.allocator.score(signals, regime) < self.allocator.threshold:
-                self._pending.append(
+            exit_pending = any(o.side == Side.SELL for o in pending_for_sym)
+            if not exit_pending and self.allocator.score(signals, regime) < self.allocator.threshold:
+                self.executor.submit(
                     Order(symbol=sym, side=Side.SELL, size_quote=0.0, stop_price=None,
                           reason="signal exit")
                 )
             return regime.value
+        if pending_for_sym:
+            return regime.value  # an entry is already queued for this symbol
         target = self.allocator.allocate(
             sym, signals, regime, window, self.executor.equity(), self.risk.risk_fraction()
         )
@@ -131,10 +139,15 @@ class Engine:
                 stop_price=target.stop_price,
                 reason=";".join(f"{k}:{v.reason}" for k, v in signals.items()),
             )
-            view = PortfolioView(equity=self.executor.equity(), positions=list(held.values()))
+            view = PortfolioView(
+                equity=self.executor.equity(),
+                positions=list(held.values()),
+                pending_buys=[o for o in self.executor.pending() if o.side == Side.BUY],
+                cash=self.executor.cash(),
+            )
             verdict = self.risk.check(order, view)
             if isinstance(verdict, RiskRejected):
                 self.rejections.append((ts, order, verdict.reason))
             else:
-                self._pending.append(verdict.order)
+                self.executor.submit(verdict.order)
         return regime.value

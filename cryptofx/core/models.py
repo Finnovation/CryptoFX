@@ -59,6 +59,12 @@ class Rejected(_Frozen):
     reason: str
 
 
+class Queued(_Frozen):
+    """Order accepted by the executor and waiting for the next bar to fill."""
+
+    order: Order
+
+
 class Position(BaseModel):
     """Open position. Mutable because trailing stops move ``stop_price``."""
 

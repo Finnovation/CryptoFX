@@ -29,6 +29,8 @@ class Resized(BaseModel):
 class PortfolioView(BaseModel):
     equity: float
     positions: list[Position]
+    pending_buys: list[Order] = []
+    cash: float | None = None
 
 
 class RiskManager:
@@ -77,12 +79,18 @@ class RiskManager:
         if order.stop_price is None:
             return Rejected(reason="missing stop")
         held = {p.symbol for p in view.positions}
-        if len(view.positions) >= limits.MAX_OPEN_POSITIONS and order.symbol not in held:
+        pending_new = {o.symbol for o in view.pending_buys} - held
+        slots_used = len(view.positions) + len(pending_new)
+        if slots_used >= limits.MAX_OPEN_POSITIONS and order.symbol not in held | pending_new:
             return Rejected(reason="max positions")
         cap = limits.MAX_SYMBOL_FRACTION * view.equity
         size = min(order.size_quote, cap)
         if size < limits.MIN_ORDER_QUOTE:
             return Rejected(reason="below min order")
+        if view.cash is not None:
+            committed = sum(o.size_quote for o in view.pending_buys)
+            if committed + size * (1 + limits.FEE_RATE) > view.cash:
+                return Rejected(reason="insufficient cash")
         if size < order.size_quote:
             resized = order.model_copy(update={"size_quote": size})
             return Resized(order=resized, reason=f"capped to {limits.MAX_SYMBOL_FRACTION:.0%} of equity")

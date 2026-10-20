@@ -14,6 +14,8 @@ from cryptofx.backtest.runner import (
     slice_with_warmup,
 )
 from cryptofx.core.models import Trade
+from cryptofx.exec.backtest import BacktestExecutor
+from cryptofx.risk.manager import RiskManager
 
 PARAM_GRID = [Params(threshold=t) for t in (0.5, 0.6, 0.7)]
 
@@ -25,6 +27,7 @@ class WalkForwardResult:
     metrics: Metrics
     benchmark: Metrics
     trades: list[Trade]
+    risk_events: list[dict]
 
 
 def windows(
@@ -58,8 +61,12 @@ def walk_forward(
     warmup: int = DEFAULT_WARMUP,
 ) -> WalkForwardResult:
     results: list[dict] = []
-    curves: list[pd.Series] = []
-    trades: list[Trade] = []
+    curves: list[pd.DataFrame] = []
+    # One executor and one risk manager live across every test window, so open
+    # positions, pending orders, drawdown peaks and halts carry over exactly as
+    # they would in a continuous paper or live run.
+    executor = BacktestExecutor(initial_equity)
+    risk = RiskManager()
     equity = initial_equity
     for train_start, test_start, test_end in windows(start, end, train_days, test_days):
         train = slice_with_warmup(candles, train_start, test_start - timedelta(seconds=1), warmup)
@@ -71,7 +78,11 @@ def walk_forward(
                 best = (key, params)
         assert best is not None
         test = slice_with_warmup(candles, test_start, test_end, warmup)
-        r = run_backtest(test, best[1], initial_equity=equity, tf=tf, warmup=warmup)
+        start_positions = len(executor.positions())
+        r = run_backtest(
+            test, best[1], initial_equity=equity, tf=tf, warmup=warmup, executor=executor,
+            risk=risk,
+        )
         results.append(
             {
                 "train_start": train_start,
@@ -82,17 +93,21 @@ def walk_forward(
                 "test_metrics": r.metrics,
                 "start_equity": equity,
                 "end_equity": float(r.equity.equity.iloc[-1]),
+                "start_positions": start_positions,
+                "end_positions": len(executor.positions()),
             }
         )
-        curves.append(r.equity.equity)
-        trades.extend(r.trades)
+        curves.append(r.equity[["equity", "n_positions"]])
         equity = float(r.equity.equity.iloc[-1])
     if not curves:
         raise ValueError("no walk-forward windows fit in the requested date range")
-    stitched = pd.concat(curves)
-    stitched = stitched[~stitched.index.duplicated(keep="last")].sort_index()
-    metrics = compute_metrics(stitched, trades)
+    stitched_df = pd.concat(curves)
+    stitched_df = stitched_df[~stitched_df.index.duplicated(keep="last")].sort_index()
+    stitched = stitched_df.equity
+    trades = executor.trades()
+    metrics = compute_metrics(stitched, trades, stitched_df.n_positions)
     bench = benchmark_for(candles, stitched.index, initial_equity)
     return WalkForwardResult(
-        windows=results, stitched_equity=stitched, metrics=metrics, benchmark=bench, trades=trades
+        windows=results, stitched_equity=stitched, metrics=metrics, benchmark=bench,
+        trades=trades, risk_events=list(risk.events),
     )

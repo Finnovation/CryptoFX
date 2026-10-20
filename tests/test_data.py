@@ -95,3 +95,18 @@ def test_max_gap_bars():
     df = pd.DataFrame({"gap": [False, True, True, False, True, True, True, False]})
     assert DataFeed.max_gap_bars(df) == 3
     assert DataFeed.max_gap_bars(pd.DataFrame({"close": [1.0]})) == 0
+
+
+def test_sync_drops_forming_candle(tmp_path):
+    now_ms = 10 * H + 1_800_000  # 10:30 -> the 10:00 candle is still forming
+
+    def fetch(symbol, tf, since_ms, limit):
+        return [r for r in _rows(0, 11) if r[0] >= since_ms]  # hours 0..10
+
+    feed = DataFeed(root=tmp_path, fetch_fn=fetch, backoff_s=0, now_fn=lambda: now_ms)
+    assert feed.sync("BTC/USDT", "1h", datetime(1970, 1, 1, tzinfo=UTC)) == 10
+    df = feed.get_candles("BTC/USDT", "1h")
+    assert df.ts.iloc[-1] == pd.Timestamp(9 * H, unit="ms", tz="UTC")
+    # later, once the 10:00 candle has closed, it is fetched
+    feed2 = DataFeed(root=tmp_path, fetch_fn=fetch, backoff_s=0, now_fn=lambda: 11 * H + 1)
+    assert feed2.sync("BTC/USDT", "1h", datetime(1970, 1, 1, tzinfo=UTC)) == 1
