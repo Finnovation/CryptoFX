@@ -164,7 +164,7 @@ and a test update.
 class Executor(Protocol):
     def submit(self, order: Order) -> Fill | Rejected
     def positions(self) -> list[Position]
-    def equity(self) -> Decimal
+    def equity(self) -> float
 ```
 
 - **BacktestExecutor**: fills at next bar open. Fee 0.1% taker. Slippage
