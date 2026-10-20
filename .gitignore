@@ -147,3 +147,10 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+.superpowers/
+
+# cryptofx
+data/
+reports/
+*.db
+.superpowers/

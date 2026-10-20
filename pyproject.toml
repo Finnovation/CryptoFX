@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cryptofx"
+version = "0.1.0"
+description = "Multi-agent crypto trading system with hard risk limits"
+requires-python = ">=3.12"
+dependencies = [
+    "ccxt>=4.3",
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "pyarrow>=15",
+    "pydantic>=2.6",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.4"]
+
+[project.scripts]
+cryptofx = "cryptofx.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["cryptofx*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
