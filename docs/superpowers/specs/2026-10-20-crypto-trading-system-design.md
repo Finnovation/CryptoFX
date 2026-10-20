@@ -26,6 +26,18 @@ Success for v1 is NOT "makes money". Success is: a working pipeline where
 backtest, paper and live share one execution path, with honest metrics that
 say whether an edge exists.
 
+### Return target
+
+Kari's stated target is 7-9% per month. For reference, that compounds to
+125-180% per year; the best hedge fund in history averaged ~66%/year. A
+realistic band for a spot-only, unleveraged retail system is 0-5% in good
+months with flat or negative months in between.
+
+The reporter shows monthly return against both the target band (7-9%) and the
+realistic band (0-5%). Risk limits in section 4.4 are NOT loosened to chase
+the target. If the system reaches the target inside those limits, the gate
+will reflect it. If it does not, the reports say so plainly.
+
 ## 2. Non-goals (v1)
 
 - No LLM in the signal path. No CrewAI/AutoGen swarm. Agents are deterministic
