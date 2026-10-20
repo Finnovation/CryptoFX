@@ -1,0 +1,16 @@
+"""Hard risk limits. These are code, not config: changing one is a code change
+with a test update, on purpose."""
+
+RISK_PER_TRADE = 0.01
+MAX_OPEN_POSITIONS = 3
+MAX_SYMBOL_FRACTION = 0.25
+DAILY_LOSS_LIMIT = 0.03
+DAILY_PAUSE_HOURS = 24
+MAX_DRAWDOWN = 0.10
+TRAIL_ATR_MULT = 1.5
+TRAIL_ACTIVATE_R = 1.0
+MIN_ORDER_QUOTE = 10.0
+FEE_RATE = 0.001
+SLIPPAGE_RATE = 0.0005
+MAX_IMPACT = 0.01
+MAX_GAP_BARS = 3
