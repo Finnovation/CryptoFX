@@ -129,3 +129,16 @@ def test_engine_step_returns_row_and_queues_orders():
     assert set(row) == {"ts", "equity", "cash", "n_positions", f"regime_{SYM}"}
     assert row["ts"] == df.ts.iloc[199]
     assert len(eng.executor.pending()) == 1
+
+
+def test_engine_exposes_last_signals_and_regimes():
+    df = uptrend(n=300)
+    eng = make_engine([TrendAgent()])
+    eng.step({SYM: df.iloc[0:200]})
+    assert set(eng.last_signals[SYM]) == {"trend"}
+    assert eng.last_signals[SYM]["trend"].direction in (Direction.LONG, Direction.FLAT)
+    assert eng.last_regimes[SYM] in {"trending", "ranging", "chaos", "gap"}
+    gapped = df.iloc[0:200].copy()
+    gapped.loc[gapped.index[-6:-1], "gap"] = True
+    eng.step({SYM: gapped})
+    assert eng.last_regimes[SYM] == "gap" and eng.last_signals[SYM] == {}

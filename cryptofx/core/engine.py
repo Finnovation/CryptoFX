@@ -9,7 +9,7 @@ from cryptofx.agents.base import Agent
 from cryptofx.agents.indicators import atr
 from cryptofx.agents.regime import RegimeAgent
 from cryptofx.core.allocator import Allocator
-from cryptofx.core.models import Fill, Order, Side, Trade
+from cryptofx.core.models import Fill, Order, Side, Signal, Trade
 from cryptofx.data.feed import DataFeed
 from cryptofx.exec.base import Executor
 from cryptofx.risk.limits import MAX_GAP_BARS
@@ -39,6 +39,8 @@ class Engine:
         self.warmup = warmup
         self.rejections: list[tuple[pd.Timestamp, Order, str]] = []
         self._seen_exec_rejections = len(executor.rejections())
+        self.last_signals: dict[str, dict[str, Signal]] = {}
+        self.last_regimes: dict[str, str] = {}
 
     @property
     def fills(self) -> list[Fill]:
@@ -97,7 +99,9 @@ class Engine:
         self.risk.update_equity(ts.to_pydatetime(), self.executor.equity())
         # 3. decisions for the next bar
         held = {p.symbol: p for p in self.executor.positions()}
+        self.last_signals = {}
         regimes = {sym: self._decide(sym, windows[sym], held, ts) for sym in self.symbols}
+        self.last_regimes = regimes
         row = {
             "ts": ts,
             "equity": self.executor.equity(),
@@ -110,9 +114,11 @@ class Engine:
 
     def _decide(self, sym: str, window: pd.DataFrame, held: dict, ts: pd.Timestamp) -> str:
         if DataFeed.max_gap_bars(window) > MAX_GAP_BARS:
+            self.last_signals[sym] = {}
             return "gap"
         regime = self.regime_agent.classify(window)
         signals = {a.name: a.signal(window, regime) for a in self.agents}
+        self.last_signals[sym] = signals
         pos = held.get(sym)
         pending_for_sym = [o for o in self.executor.pending() if o.symbol == sym]
         if pos is not None:
