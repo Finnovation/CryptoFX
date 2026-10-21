@@ -140,3 +140,4 @@ def test_index_served(tmp_path):
     for el in ("chart", "agents", "trades", "positions", "stats", "gate", "wallet", "equity"):
         assert f'id="{el}"' in r.text, el
     assert '<details id="trades" class="collapsible" open>' in r.text  # collapsible, shown by default
+    assert '<details id="risk-events" class="collapsible" open>' in r.text

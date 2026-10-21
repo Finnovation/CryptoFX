@@ -142,7 +142,10 @@
 
   <div class="grid-2">
     <section id="gate" class="gate"><h2>Go-live gate</h2><ul id="gate-list"></ul></section>
-    <section id="risk-events"><h2>Risk events</h2><div class="scroll" id="risk-body"></div></section>
+    <details id="risk-events" class="collapsible" open>
+      <summary><h2>Risk events <span class="muted" id="risk-count"></span></h2></summary>
+      <div class="scroll" id="risk-body"></div>
+    </details>
   </div>
   <footer>Every number on this page comes from the trade log. Paper trading is not live trading.</footer>
 </main>
@@ -343,6 +346,7 @@
   async function loadRiskEvents() {
     const rows = await api('/api/risk-events?limit=50');
     const el = $('risk-body');
+    $('risk-count').textContent = rows.length ? `(${rows.length})` : '';
     if (!rows.length) { el.innerHTML = '<div class="empty">No risk events. Good.</div>'; return; }
     el.innerHTML = table(['When', 'Kind', 'Detail'], rows.map((e) => `<tr><td>${fmtTs(e.ts)}</td><td class="${e.kind === 'halted' || e.kind === 'error' ? 'neg' : e.kind === 'paused' ? '' : 'muted'}">${e.kind}</td><td style="text-align:left;white-space:normal">${(e.detail || '').split('\n')[0]}</td></tr>`));
   }
