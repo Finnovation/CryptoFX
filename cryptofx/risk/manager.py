@@ -112,3 +112,27 @@ class RiskManager:
 
     def risk_fraction(self) -> float:
         return limits.RISK_PER_TRADE
+
+    # -- persistence ----------------------------------------------------
+    def to_state(self) -> dict:
+        iso = lambda d: d.isoformat() if d is not None else None
+        return {
+            "state": self.state.value,
+            "peak_equity": self.peak_equity,
+            "day_start_equity": self.day_start_equity,
+            "day_start_ts": iso(self.day_start_ts),
+            "paused_until": iso(self.paused_until),
+            "events": [{**e, "ts": iso(e["ts"])} for e in self.events],
+        }
+
+    @classmethod
+    def from_state(cls, state: dict) -> "RiskManager":
+        rm = cls()
+        parse = lambda s: datetime.fromisoformat(s) if s else None
+        rm.state = RiskState(state["state"])
+        rm.peak_equity = state["peak_equity"]
+        rm.day_start_equity = state["day_start_equity"]
+        rm.day_start_ts = parse(state["day_start_ts"])
+        rm.paused_until = parse(state["paused_until"])
+        rm.events = [{**e, "ts": parse(e["ts"])} for e in state["events"]]
+        return rm

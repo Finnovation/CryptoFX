@@ -13,6 +13,8 @@ from cryptofx.risk.limits import FEE_RATE, MAX_IMPACT, SLIPPAGE_RATE
 
 
 class BacktestExecutor:
+    mode = "backtest"
+
     def __init__(
         self,
         initial_equity: float,
@@ -132,6 +134,34 @@ class BacktestExecutor:
         )
         self._trades.append(trade)
         return trade
+
+    # -- persistence ----------------------------------------------------
+    def to_state(self) -> dict:
+        """JSON-safe snapshot. Reference bars are not included; feed the latest
+        window again after ``from_state``."""
+        return {
+            "cash": self._cash,
+            "positions": [p.model_dump(mode="json") for p in self._positions.values()],
+            "entry_fees": dict(self._entry_fees),
+            "pending": [o.model_dump(mode="json") for o in self._pending],
+            "fills": [f.model_dump(mode="json") for f in self._fills],
+            "rejections": [[o.model_dump(mode="json"), r] for o, r in self._rejections],
+            "trades": [t.model_dump(mode="json") for t in self._trades],
+        }
+
+    @classmethod
+    def from_state(
+        cls, state: dict, fee_rate: float = FEE_RATE, slippage_rate: float = SLIPPAGE_RATE
+    ):
+        ex = cls(0.0, fee_rate=fee_rate, slippage_rate=slippage_rate)
+        ex._cash = float(state["cash"])
+        ex._positions = {p["symbol"]: Position(**p) for p in state["positions"]}
+        ex._entry_fees = {k: float(v) for k, v in state["entry_fees"].items()}
+        ex._pending = [Order(**o) for o in state["pending"]]
+        ex._fills = [Fill(**f) for f in state["fills"]]
+        ex._rejections = [(Order(**o), r) for o, r in state["rejections"]]
+        ex._trades = [Trade(**t) for t in state["trades"]]
+        return ex
 
     # -- state ----------------------------------------------------------
     def positions(self) -> list[Position]:
