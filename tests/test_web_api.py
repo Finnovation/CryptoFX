@@ -139,3 +139,4 @@ def test_index_served(tmp_path):
     assert lib.status_code == 200 and "Lightweight Charts" in lib.text[:300]
     for el in ("chart", "agents", "trades", "positions", "stats", "gate", "wallet", "equity"):
         assert f'id="{el}"' in r.text, el
+    assert '<details id="trades" class="collapsible" open>' in r.text  # collapsible, shown by default

@@ -33,7 +33,14 @@
   .pos { color: var(--green); } .neg { color: var(--red); }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-width: 0; }
   .grid-2 > * { min-width: 0; }
-  section h2 { margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  section h2, .collapsible h2 { margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .collapsible { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-width: 0; }
+  .collapsible summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; user-select: none; }
+  .collapsible summary::-webkit-details-marker { display: none; }
+  .collapsible summary::before { content: "▾"; color: var(--muted); font-size: 12px; transition: transform .15s; }
+  .collapsible:not([open]) summary::before { transform: rotate(-90deg); }
+  .collapsible:not([open]) summary h2 { margin-bottom: 0; }
+  .collapsible summary h2 { display: inline; }
   .grid-2 { display: grid; gap: 12px; grid-template-columns: 1fr; }
   @media (min-width: 900px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
   .tiles { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
@@ -128,7 +135,10 @@
     </div>
   </section>
 
-  <section id="trades"><h2>Trades</h2><div class="scroll" id="trades-body"></div></section>
+  <details id="trades" class="collapsible" open>
+    <summary><h2>Trades <span class="muted" id="trades-count"></span></h2></summary>
+    <div class="scroll" id="trades-body"></div>
+  </details>
 
   <div class="grid-2">
     <section id="gate" class="gate"><h2>Go-live gate</h2><ul id="gate-list"></ul></section>
@@ -324,6 +334,7 @@
     $('by-symbol').innerHTML = bySym.length ? table(['By symbol', 'Trades', 'P&L'], bySym.map(([k, v]) => `<tr><td>${k}</td><td>${v.count}</td><td class="${v.pnl >= 0 ? 'pos' : 'neg'}">${fmtMoney(v.pnl)}</td></tr>`)) : '';
     $('by-reason').innerHTML = byRsn.length ? table(['By exit', 'Trades', 'P&L'], byRsn.map(([k, v]) => `<tr><td>${k}</td><td>${v.count}</td><td class="${v.pnl >= 0 ? 'pos' : 'neg'}">${fmtMoney(v.pnl)}</td></tr>`)) : '';
     const el = $('trades-body');
+    $('trades-count').textContent = b.trades.length ? `(${b.trades.length})` : '';
     if (!b.trades.length) { el.innerHTML = '<div class="empty">No closed trades yet.</div>'; return; }
     el.innerHTML = table(['Symbol', 'Entry', 'Exit', 'In', 'Out', 'Size', 'P&L', 'Fees', 'Reason'],
       b.trades.map((t) => `<tr><td>${t.symbol}</td><td>${fmtTs(t.entry_ts)}</td><td>${fmtTs(t.exit_ts)}</td><td>${fmtNum(t.entry_price, 2)}</td><td>${fmtNum(t.exit_price, 2)}</td><td>${fmtNum(t.size_base, 6)}</td><td class="${t.pnl >= 0 ? 'pos' : 'neg'}">${fmtMoney(t.pnl)}</td><td>${fmtMoney(t.fees)}</td><td>${t.exit_reason}</td></tr>`));
@@ -334,6 +345,12 @@
     const el = $('risk-body');
     if (!rows.length) { el.innerHTML = '<div class="empty">No risk events. Good.</div>'; return; }
     el.innerHTML = table(['When', 'Kind', 'Detail'], rows.map((e) => `<tr><td>${fmtTs(e.ts)}</td><td class="${e.kind === 'halted' || e.kind === 'error' ? 'neg' : e.kind === 'paused' ? '' : 'muted'}">${e.kind}</td><td style="text-align:left;white-space:normal">${(e.detail || '').split('\n')[0]}</td></tr>`));
+  }
+
+  // remember whether the trade log is collapsed; open by default
+  for (const d of document.querySelectorAll('details.collapsible')) {
+    try { if (localStorage.getItem('cryptofx_' + d.id + '_closed') === '1') d.open = false; } catch (e) {}
+    d.addEventListener('toggle', () => { try { localStorage.setItem('cryptofx_' + d.id + '_closed', d.open ? '0' : '1'); } catch (e) {} });
   }
 
   const safe = (fn) => fn().catch((e) => console.warn(e.message));
