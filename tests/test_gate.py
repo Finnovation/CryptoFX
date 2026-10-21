@@ -101,3 +101,19 @@ def test_cli_risk_reset_clears_halt(tmp_path):
     assert s.risk_events()[0]["kind"] == "reset" and "reviewed" in s.risk_events()[0]["detail"]
     r2 = CliRunner().invoke(cli.app, ["risk", "reset", "--confirm", "--reason", "again", "--db", str(db)])
     assert r2.exit_code != 0 and "not halted" in r2.output.lower()
+
+
+def test_error_halt_blocks_gate():
+    s = Store(":memory:")
+    seed_passing(s)
+    s.append_risk_events([{"ts": T0 + timedelta(days=45), "kind": "error", "detail": "crash"}])
+    failed = [c.name for c in GoLiveGate(s).evaluate() if not c.passed]
+    assert failed == ["no_halt_30d"]
+
+
+def test_flood_of_data_events_does_not_hide_halt():
+    s = Store(":memory:")
+    seed_passing(s, halt_days_ago=5)
+    s.append_risk_events([{"ts": T0 + timedelta(days=49, seconds=i), "kind": "data", "detail": "x"}
+                          for i in range(12_000)])
+    assert not GoLiveGate(s).passes()

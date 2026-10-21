@@ -34,9 +34,7 @@ class GoLiveGate:
         recent_halt = False
         if last is not None:
             cutoff = last - timedelta(days=HALT_FREE_DAYS)
-            recent_halt = any(
-                e["kind"] == "halted" and e["ts"] >= cutoff for e in self.store.risk_events(limit=10_000)
-            )
+            recent_halt = self.store.has_events(["halted", "error"], cutoff)
         pf = stats["profit_factor"]
         return [
             Criterion("paper_days", days >= MIN_PAPER_DAYS, f"{days:.1f}", f">= {MIN_PAPER_DAYS}"),

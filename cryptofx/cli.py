@@ -148,7 +148,11 @@ def paper_run(
     store = Store(db)
     trader = PaperTrader(feed, store, _symbols(symbols), tf, Params(), equity, warmup=warmup,
                          log=typer.echo)
-    trader.bootstrap()
+    try:
+        trader.bootstrap()
+    except ValueError as e:
+        typer.secho(str(e), fg=typer.colors.RED)
+        raise typer.Exit(code=2) from e
     if once:
         stepped = trader.run_once()
         typer.echo(f"stepped {trader.last_ts}" if stepped else "no new bar")

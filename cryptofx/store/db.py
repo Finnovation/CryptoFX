@@ -240,6 +240,14 @@ class Store:
         rows = self._rows("SELECT * FROM risk_events ORDER BY ts DESC, id DESC LIMIT ?", (limit,))
         return [{"id": r["id"], "ts": _dt(r["ts"]), "kind": r["kind"], "detail": r["detail"]} for r in rows]
 
+    def has_events(self, kinds: list[str], since: datetime) -> bool:
+        marks = ",".join("?" for _ in kinds)
+        row = self._conn.execute(
+            f"SELECT 1 FROM risk_events WHERE kind IN ({marks}) AND ts >= ? LIMIT 1",
+            (*kinds, _iso(since)),
+        ).fetchone()
+        return row is not None
+
     def rejections(self, limit: int = 100) -> list[dict]:
         rows = self._rows("SELECT * FROM rejections ORDER BY ts DESC, id DESC LIMIT ?", (limit,))
         out = []

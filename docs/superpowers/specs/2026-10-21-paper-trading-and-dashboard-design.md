@@ -121,20 +121,30 @@ now_fn=None)`.
   last processed ts; otherwise create fresh ones, `start_run("paper", ...)`.
   Builds the engine via `runner.build_engine` with the restored executor and
   risk manager.
-- `run_once() -> bool`: `feed.sync` each symbol from `last_ts` (or `warmup`
-  bars back); load the last `warmup` bars per symbol; find the newest ts
-  shared by all symbols; if it is not newer than `last_ts`, return False.
-  Otherwise call `engine.step(windows)`, then in one transaction: append
-  equity row, new fills, new trades, new rejections, signals, risk events,
-  replace positions, save executor and risk state and `last_ts`. Return True.
+- `run_once() -> bool`: adopt any risk state an operator changed in the
+  store (see `risk reset`); `feed.sync` each symbol from `last_ts - warmup`
+  bars; collect every ts shared by all symbols that is newer than `last_ts`
+  (a fresh run takes only the newest bar); for each such ts in order, build
+  the trailing `warmup` window per symbol, call `engine.step(windows)` and
+  persist in one transaction (equity row, new fills, trades, rejections,
+  signals, risk events, positions, executor and risk state, `last_ts`).
+  Catch-up is what makes the paper record identical to a backtest of the
+  same candles after downtime. Return True if any bar was stepped.
 - `run_forever(sleep_fn=time.sleep)`: loop: `run_once()`; sleep until the
   next candle close plus `POLL_DELAY_S = 30`, polling every 60s after that
   until a new bar arrives (exchanges publish the closed candle a few seconds
-  late). Any exception: log, write a `risk_event(kind="error")`, set the
-  risk manager HALTED, persist, re-raise. Exit code non-zero. A supervisor
-  restart resumes HALTED and will not trade until `risk reset`.
-- Sync failures (`DataFeedError`) are not fatal: log, write a risk_event
-  `kind="data"`, skip this round.
+  late).
+- Any exception anywhere inside `run_once` (sync, cache, windowing, step,
+  persist): write a `risk_event(kind="error")`, set HALTED on the *last
+  persisted* risk snapshot, save that (never the mid-step executor), re-raise.
+  Exit code non-zero. A supervisor restart resumes HALTED from the last
+  consistent state and will not trade until `risk reset`; the interrupted bar
+  then replays cleanly.
+- Sync failures (`DataFeedError`) and insufficient history are not fatal: one
+  `kind="data"` event at the start of an outage, one `kind="data_ok"` when it
+  ends, skip the round.
+- Resuming with different `symbols`, `tf` or params than the saved run is
+  refused with a clear message.
 
 ### 4.5 Go-live gate (`cryptofx/risk/gate.py`), read-only in this plan
 
@@ -142,7 +152,9 @@ now_fn=None)`.
 passed: bool, actual: str, required: str)`. Criteria from spec §9:
 `days_paper >= 42`, `closed_trades >= 50`, `profit_factor > 1.3`,
 `max_drawdown < 0.10`, `expectancy > 0`, `no HALTED events in 30 days`.
-`passes()` is all-true. Nothing consumes `passes()` yet.
+`passes()` is all-true. Nothing consumes `passes()` yet. The halt check is a
+SQL query over `kind IN ('halted','error')` since the cutoff, so a flood of
+other events cannot hide one.
 
 ### 4.6 Web API (`cryptofx/web/app.py`)
 
