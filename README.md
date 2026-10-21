@@ -46,6 +46,47 @@ shows the system next to BTC buy-and-hold, monthly returns against a
 `target 7-9% / realistic 0-5%` reference line, and a red warning when the
 system's Sharpe is below buy-and-hold.
 
+## Paper trade and watch it
+
+Two processes share one SQLite file. Start the trader, then the dashboard.
+
+```bash
+cryptofx paper run                      # resumes from cryptofx.db if it exists
+cryptofx paper run --once               # one bar then exit (cron-friendly)
+cryptofx web                            # http://127.0.0.1:8000
+cryptofx gate                           # go-live checklist, exit 1 while locked
+cryptofx risk reset --confirm --reason "reviewed the halt, resuming"
+```
+
+The dashboard shows wallet, equity curve, a candlestick chart with the
+system's overlays and trade markers, what every agent is voting right now,
+open positions, trade history with win/loss stats, risk events and the
+go-live checklist. It polls every 10 seconds and works on a phone.
+
+**Phone access.** The server binds to localhost on purpose. Use Tailscale
+(install it on the box and your phone, then open `http://<tailscale-ip>:8000`)
+or an SSH tunnel (`ssh -L 8000:127.0.0.1:8000 user@box`). If you must bind
+`--host 0.0.0.0`, set `CRYPTOFX_TOKEN=<long random string>` first; the page
+will ask for it once and remember it.
+
+**Keep it running.** A minimal systemd unit:
+
+```ini
+[Unit]
+Description=CryptoFX paper trader
+After=network-online.target
+[Service]
+WorkingDirectory=/home/you/CryptoFX
+ExecStart=/home/you/CryptoFX/.venv/bin/cryptofx paper run
+Restart=always
+RestartSec=30
+[Install]
+WantedBy=default.target
+```
+
+If the trader crashes it halts itself before exiting; on restart it stays
+halted until you run `cryptofx risk reset`. That is deliberate.
+
 ## Architecture
 
 ```
@@ -56,7 +97,8 @@ DataFeed -> RegimeAgent + {Trend, MeanRev, Breakout} -> Allocator -> RiskManager
 - The allocator needs weighted agreement (score >= threshold) to size a trade.
 - The risk manager can pause (3% daily loss) or halt (10% drawdown) trading
   and vetoes every buy that breaks a limit. Sells are never blocked.
-- Executors: backtest (done), paper and live (next plan).
+- Executors: backtest and paper share one fill model; live (Kraken) is Plan 3,
+  locked behind the gate.
 
 ## Status
 

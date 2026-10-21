@@ -1,3 +1,348 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>CryptoFX</title></head>
-<body><h1>CryptoFX <span class="badge">PAPER</span></h1><div id="chart"></div></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CryptoFX</title>
+<style>
+  :root {
+    --bg: #0b0f14; --panel: #121821; --panel-2: #0f141b; --line: #1f2a37;
+    --text: #e6edf3; --muted: #8b98a5; --green: #22c55e; --red: #ef4444;
+    --amber: #f59e0b; --accent: #3b82f6;
+    --ema20: #3b82f6; --ema50: #ea580c; --bb: #8b5cf6; --don: #0d9488;
+    --up: #26a69a; --down: #ef5350;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1200px; margin: 0 auto; padding: 12px 16px 48px; display: grid; gap: 12px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 10px 0 2px; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: .02em; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-weight: 700;
+    font-size: 12px; letter-spacing: .08em; background: #1d4ed8; color: #fff; vertical-align: middle; }
+  .badge.live { background: var(--red); }
+  .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px;
+    font-weight: 600; border: 1px solid var(--line); color: var(--muted); }
+  .chip.active { color: var(--green); border-color: var(--green); }
+  .chip.paused { color: var(--amber); border-color: var(--amber); }
+  .chip.halted { color: var(--red); border-color: var(--red); }
+  .chip.stale { color: var(--amber); border-color: var(--amber); }
+  .kv { display: flex; flex-direction: column; min-width: 90px; }
+  .kv .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .kv .v { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pos { color: var(--green); } .neg { color: var(--red); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-width: 0; }
+  .grid-2 > * { min-width: 0; }
+  section h2 { margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .grid-2 { display: grid; gap: 12px; grid-template-columns: 1fr; }
+  @media (min-width: 900px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
+  .tiles { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .tile { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  .tile .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .tile .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tile .s { color: var(--muted); font-size: 11px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .tabs button { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12px; }
+  .tabs button.on { color: var(--text); border-color: var(--accent); }
+  .chart { width: 100%; height: 380px; position: relative; overflow: hidden; }
+  .chart.small { height: 180px; }
+  .legend { position: absolute; top: 6px; left: 8px; z-index: 2; font-size: 11px; color: var(--muted);
+    display: flex; gap: 12px; flex-wrap: wrap; pointer-events: none; }
+  .legend i { display: inline-block; width: 10px; height: 2px; vertical-align: middle; margin-right: 4px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
+  th, td { text-align: right; padding: 5px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .scroll { overflow-x: auto; }
+  .agent { display: grid; grid-template-columns: 80px 56px 1fr; gap: 8px; align-items: center; padding: 4px 0; }
+  .agent .bar { height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+  .agent .bar i { display: block; height: 100%; background: var(--accent); }
+  .agent .bar.flat i { background: var(--line); }
+  .agent .why { grid-column: 1 / -1; color: var(--muted); font-size: 12px; padding-left: 2px; }
+  .sym { display: flex; justify-content: space-between; align-items: center; margin: 8px 0 2px; font-weight: 600; }
+  .gate li { list-style: none; display: grid; grid-template-columns: 56px 1fr auto; gap: 8px; padding: 4px 0;
+    border-bottom: 1px solid var(--line); font-size: 13px; }
+  .gate ul { margin: 0; padding: 0; }
+  .gate .ok { color: var(--green); font-weight: 700; } .gate .no { color: var(--red); font-weight: 700; }
+  .muted { color: var(--muted); }
+  .empty { color: var(--muted); font-style: italic; padding: 8px 0; }
+  .bands { font-size: 12px; color: var(--muted); }
+  footer { color: var(--muted); font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>CryptoFX <span id="mode" class="badge">PAPER</span></h1>
+    <span id="risk" class="chip">—</span>
+    <span id="stale" class="chip stale" hidden>STALE</span>
+    <div class="kv"><span class="k">Equity</span><span class="v" id="h-equity">—</span></div>
+    <div class="kv"><span class="k">Today</span><span class="v" id="h-today">—</span></div>
+    <div class="kv"><span class="k">Drawdown</span><span class="v" id="h-dd">—</span></div>
+    <div class="kv"><span class="k">Last bar</span><span class="v" id="h-last" style="font-size:14px">—</span></div>
+  </header>
+
+  <div class="grid-2">
+    <section id="wallet">
+      <h2>Wallet</h2>
+      <div class="tiles">
+        <div class="tile"><div class="k">Cash</div><div class="v" id="w-cash">—</div></div>
+        <div class="tile"><div class="k">Positions</div><div class="v" id="w-pos">—</div></div>
+        <div class="tile"><div class="k">Total</div><div class="v" id="w-total">—</div></div>
+        <div class="tile"><div class="k">Started with</div><div class="v" id="w-init">—</div></div>
+        <div class="tile"><div class="k">Total return</div><div class="v" id="w-ret">—</div></div>
+        <div class="tile"><div class="k">This month</div><div class="v" id="w-month">—</div>
+          <div class="s bands">target 7–9% · realistic 0–5%</div></div>
+      </div>
+    </section>
+    <section>
+      <h2>Equity</h2>
+      <div id="equity" class="chart small"></div>
+    </section>
+  </div>
+
+  <section>
+    <h2>Chart</h2>
+    <div id="tabs" class="tabs"></div>
+    <div id="chart" class="chart">
+      <div class="legend" id="legend">
+        <span><i style="background:var(--ema20)"></i>EMA20</span>
+        <span><i style="background:var(--ema50)"></i>EMA50</span>
+        <span><i style="background:var(--bb)"></i>Bollinger</span>
+        <span><i style="background:var(--don)"></i>Donchian</span>
+        <span id="ohlc"></span>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid-2">
+    <section id="agents"><h2>Agents</h2><div id="agents-body" class="empty">No signals yet.</div></section>
+    <section id="positions"><h2>Open positions</h2><div class="scroll" id="positions-body"></div></section>
+  </div>
+
+  <section id="stats"><h2>Performance</h2><div class="tiles" id="stats-tiles"></div>
+    <div class="grid-2" style="margin-top:10px">
+      <div class="scroll" id="by-symbol"></div>
+      <div class="scroll" id="by-reason"></div>
+    </div>
+  </section>
+
+  <section id="trades"><h2>Trades</h2><div class="scroll" id="trades-body"></div></section>
+
+  <div class="grid-2">
+    <section id="gate" class="gate"><h2>Go-live gate</h2><ul id="gate-list"></ul></section>
+    <section id="risk-events"><h2>Risk events</h2><div class="scroll" id="risk-body"></div></section>
+  </div>
+  <footer>Every number on this page comes from the trade log. Paper trading is not live trading.</footer>
+</main>
+
+<!-- vendored: lightweight-charts@4.2.0 (TradingView, Apache-2.0, see vendor/LICENSE.lightweight-charts) -->
+<script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const fmtMoney = (v) => v == null ? '—' : v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtPct = (v, d = 2) => v == null ? '—' : (v * 100).toFixed(d) + '%';
+  const fmtNum = (v, d = 4) => v == null ? '—' : Number(v).toFixed(d);
+  const fmtTs = (s) => s ? new Date(s).toLocaleString(undefined, { hour12: false }) : '—';
+  const signed = (el, v, text) => { el.textContent = text; el.className = el.className.replace(/\b(pos|neg)\b/g, '').trim() + (v > 0 ? ' pos' : v < 0 ? ' neg' : ''); };
+
+  // ---- auth ---------------------------------------------------------
+  let token = null;
+  try { token = localStorage.getItem('cryptofx_token'); } catch (e) {}
+  async function api(path) {
+    const headers = token ? { Authorization: 'Bearer ' + token } : {};
+    let r = await fetch(path, { headers });
+    if (r.status === 401) {
+      const t = prompt('This dashboard needs a token (CRYPTOFX_TOKEN):');
+      if (!t) throw new Error('unauthorized');
+      token = t;
+      try { localStorage.setItem('cryptofx_token', t); } catch (e) {}
+      r = await fetch(path, { headers: { Authorization: 'Bearer ' + token } });
+    }
+    if (!r.ok) throw new Error(path + ' -> ' + r.status);
+    return r.json();
+  }
+
+  // ---- charts -------------------------------------------------------
+  const LW = window.LightweightCharts;
+  const chartOpts = () => ({
+    autoSize: true,
+    layout: { background: { color: css('--panel') }, textColor: css('--muted') },
+    grid: { vertLines: { color: css('--line') }, horzLines: { color: css('--line') } },
+    rightPriceScale: { borderColor: css('--line') },
+    timeScale: { borderColor: css('--line'), timeVisible: true, secondsVisible: false },
+    crosshair: { mode: LW.CrosshairMode.Normal },
+  });
+  const priceChart = LW.createChart($('chart'), chartOpts());
+  const candles = priceChart.addCandlestickSeries({
+    upColor: css('--up'), downColor: css('--down'), borderVisible: false,
+    wickUpColor: css('--up'), wickDownColor: css('--down'),
+  });
+  const line = (color, width = 2, style = 0) => priceChart.addLineSeries({ color, lineWidth: width, lineStyle: style, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+  const ov = {
+    ema20: line(css('--ema20')), ema50: line(css('--ema50')),
+    bb_upper: line(css('--bb'), 1, 2), bb_lower: line(css('--bb'), 1, 2),
+    donchian_upper: line(css('--don'), 1, 1), donchian_lower: line(css('--don'), 1, 1),
+  };
+  let stopLine = null;
+  priceChart.subscribeCrosshairMove((p) => {
+    const d = p.seriesData && p.seriesData.get(candles);
+    $('ohlc').textContent = d ? `O ${fmtNum(d.open, 2)} H ${fmtNum(d.high, 2)} L ${fmtNum(d.low, 2)} C ${fmtNum(d.close, 2)}` : '';
+  });
+
+  const equityChart = LW.createChart($('equity'), chartOpts());
+  const equitySeries = equityChart.addAreaSeries({
+    lineColor: css('--accent'), topColor: 'rgba(59,130,246,0.35)', bottomColor: 'rgba(59,130,246,0.02)', lineWidth: 2,
+  });
+
+  // ---- state --------------------------------------------------------
+  let symbols = [], tf = '1h', symbol = null, tfSeconds = 3600;
+
+  function pickSymbol(s) {
+    symbol = s;
+    for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.s === s);
+    loadCandles();
+  }
+
+  async function loadSymbols() {
+    const r = await api('/api/symbols');
+    symbols = r.symbols; tf = r.tf; tfSeconds = tf === '4h' ? 14400 : 3600;
+    $('tabs').innerHTML = '';
+    for (const s of symbols) {
+      const b = document.createElement('button'); b.textContent = s; b.dataset.s = s;
+      b.onclick = () => pickSymbol(s); $('tabs').appendChild(b);
+    }
+    pickSymbol(symbols[0]);
+  }
+
+  async function loadCandles() {
+    if (!symbol) return;
+    let body;
+    try { body = await api('/api/candles?symbol=' + encodeURIComponent(symbol) + '&limit=300'); }
+    catch (e) { candles.setData([]); return; }
+    candles.setData(body.candles);
+    for (const k in ov) ov[k].setData(body.overlays[k].map((p) => p.value == null ? { time: p.time } : p));
+    candles.setMarkers(body.markers);
+    if (stopLine) { candles.removePriceLine(stopLine); stopLine = null; }
+    if (body.stop_price != null) {
+      stopLine = candles.createPriceLine({ price: body.stop_price, color: css('--amber'), lineWidth: 1, lineStyle: 2, title: 'stop' });
+    }
+    priceChart.timeScale().fitContent();
+  }
+
+  async function loadStatus() {
+    const s = await api('/api/status');
+    $('mode').textContent = (s.mode || 'paper').toUpperCase();
+    $('mode').classList.toggle('live', s.mode === 'live');
+    const chip = $('risk'); chip.textContent = (s.risk_state || 'active').toUpperCase();
+    chip.className = 'chip ' + (s.risk_state || 'active');
+    if (s.paused_until) chip.textContent += ' until ' + fmtTs(s.paused_until);
+    $('h-equity').textContent = fmtMoney(s.equity);
+    signed($('h-dd'), -s.drawdown, s.equity == null ? '—' : '-' + fmtPct(s.drawdown));
+    $('h-last').textContent = fmtTs(s.last_ts);
+    const stale = s.last_ts && (Date.now() - new Date(s.last_ts).getTime()) > 2 * tfSeconds * 1000 + 120000;
+    $('stale').hidden = !stale;
+    $('w-cash').textContent = fmtMoney(s.cash);
+    $('w-pos').textContent = s.equity == null ? '—' : fmtMoney(s.equity - s.cash);
+    $('w-total').textContent = fmtMoney(s.equity);
+    $('w-init').textContent = fmtMoney(s.initial_equity);
+    signed($('w-ret'), s.total_return, fmtPct(s.total_return));
+    renderGate(s.gate || []);
+  }
+
+  function renderGate(items) {
+    const ul = $('gate-list'); ul.innerHTML = '';
+    for (const c of items) {
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="${c.passed ? 'ok' : 'no'}">${c.passed ? 'PASS' : 'FAIL'}</span><span>${c.name}</span><span class="muted">${c.actual} · need ${c.required}</span>`;
+      ul.appendChild(li);
+    }
+    if (!items.length) ul.innerHTML = '<li class="empty">No data yet.</li>';
+  }
+
+  async function loadEquity() {
+    const rows = await api('/api/equity?limit=5000');
+    const seen = new Set(); const data = [];
+    for (const r of rows) {
+      const t = Math.floor(new Date(r.ts).getTime() / 1000);
+      if (seen.has(t)) continue; seen.add(t); data.push({ time: t, value: r.equity });
+    }
+    equitySeries.setData(data); equityChart.timeScale().fitContent();
+    // today's change and this month's return
+    if (rows.length) {
+      const last = rows[rows.length - 1]; const lastDate = new Date(last.ts);
+      const dayStart = rows.find((r) => new Date(r.ts).toISOString().slice(0, 10) === lastDate.toISOString().slice(0, 10)) || rows[0];
+      const monthStart = rows.find((r) => new Date(r.ts).toISOString().slice(0, 7) === lastDate.toISOString().slice(0, 7)) || rows[0];
+      const today = last.equity / dayStart.equity - 1; const month = last.equity / monthStart.equity - 1;
+      signed($('h-today'), today, fmtPct(today)); signed($('w-month'), month, fmtPct(month));
+    }
+  }
+
+  async function loadPositions() {
+    const rows = await api('/api/positions');
+    const el = $('positions-body');
+    if (!rows.length) { el.innerHTML = '<div class="empty">Flat. No open positions.</div>'; return; }
+    el.innerHTML = '<table><thead><tr><th>Symbol</th><th>Size</th><th>Entry</th><th>Mark</th><th>Stop</th><th>P&amp;L</th><th>%</th><th>Opened</th></tr></thead><tbody>' +
+      rows.map((p) => `<tr><td>${p.symbol}</td><td>${fmtNum(p.size_base, 6)}</td><td>${fmtNum(p.entry_price, 2)}</td><td>${fmtNum(p.mark, 2)}</td><td>${fmtNum(p.stop_price, 2)}</td><td class="${p.unrealised_pnl > 0 ? 'pos' : p.unrealised_pnl < 0 ? 'neg' : ''}">${fmtMoney(p.unrealised_pnl)}</td><td class="${p.unrealised_pct > 0 ? 'pos' : p.unrealised_pct < 0 ? 'neg' : ''}">${fmtPct(p.unrealised_pct)}</td><td>${fmtTs(p.opened_at)}</td></tr>`).join('') +
+      '</tbody></table>';
+  }
+
+  async function loadSignals() {
+    const g = await api('/api/signals');
+    const el = $('agents-body');
+    const syms = Object.keys(g);
+    if (!syms.length) { el.className = 'empty'; el.textContent = 'No signals yet.'; return; }
+    el.className = '';
+    el.innerHTML = syms.map((s) => {
+      const r = g[s];
+      const rows = r.agents.map((a) => `<div class="agent"><span>${a.agent}</span><span class="${a.direction === 'long' ? 'pos' : 'muted'}">${a.direction.toUpperCase()}</span><div class="bar ${a.direction === 'long' ? '' : 'flat'}"><i style="width:${Math.round(a.confidence * 100)}%"></i></div><div class="why">${a.reason}</div></div>`).join('');
+      return `<div class="sym"><span>${s}</span><span class="chip">${r.regime}</span></div>${rows || '<div class="muted">gap in data, agents idle</div>'}`;
+    }).join('');
+  }
+
+  function table(headers, rows) {
+    return `<table><thead><tr>${headers.map((h) => '<th>' + h + '</th>').join('')}</tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  }
+
+  async function loadTrades() {
+    const b = await api('/api/trades?limit=200');
+    const s = b.stats;
+    const tile = (k, v, cls = '', sub = '') => `<div class="tile"><div class="k">${k}</div><div class="v ${cls}">${v}</div>${sub ? '<div class="s">' + sub + '</div>' : ''}</div>`;
+    $('stats-tiles').innerHTML =
+      tile('Trades', s.count) +
+      tile('Win rate', fmtPct(s.win_rate, 1), '', `${s.wins}W / ${s.losses}L`) +
+      tile('Profit factor', s.profit_factor == null ? '∞' : fmtNum(s.profit_factor, 2), s.profit_factor == null || s.profit_factor > 1.3 ? 'pos' : s.count ? 'neg' : '', 'need > 1.3') +
+      tile('Expectancy', fmtMoney(s.expectancy), s.expectancy > 0 ? 'pos' : s.expectancy < 0 ? 'neg' : '', 'per trade') +
+      tile('Avg win', fmtMoney(s.avg_win), 'pos') + tile('Avg loss', fmtMoney(s.avg_loss), 'neg') +
+      tile('Net P&L', fmtMoney(s.gross_pnl), s.gross_pnl > 0 ? 'pos' : s.gross_pnl < 0 ? 'neg' : '') +
+      tile('Fees paid', fmtMoney(s.fees));
+    const bySym = Object.entries(s.by_symbol || {});
+    const byRsn = Object.entries(s.by_exit_reason || {});
+    $('by-symbol').innerHTML = bySym.length ? table(['By symbol', 'Trades', 'P&L'], bySym.map(([k, v]) => `<tr><td>${k}</td><td>${v.count}</td><td class="${v.pnl >= 0 ? 'pos' : 'neg'}">${fmtMoney(v.pnl)}</td></tr>`)) : '';
+    $('by-reason').innerHTML = byRsn.length ? table(['By exit', 'Trades', 'P&L'], byRsn.map(([k, v]) => `<tr><td>${k}</td><td>${v.count}</td><td class="${v.pnl >= 0 ? 'pos' : 'neg'}">${fmtMoney(v.pnl)}</td></tr>`)) : '';
+    const el = $('trades-body');
+    if (!b.trades.length) { el.innerHTML = '<div class="empty">No closed trades yet.</div>'; return; }
+    el.innerHTML = table(['Symbol', 'Entry', 'Exit', 'In', 'Out', 'Size', 'P&L', 'Fees', 'Reason'],
+      b.trades.map((t) => `<tr><td>${t.symbol}</td><td>${fmtTs(t.entry_ts)}</td><td>${fmtTs(t.exit_ts)}</td><td>${fmtNum(t.entry_price, 2)}</td><td>${fmtNum(t.exit_price, 2)}</td><td>${fmtNum(t.size_base, 6)}</td><td class="${t.pnl >= 0 ? 'pos' : 'neg'}">${fmtMoney(t.pnl)}</td><td>${fmtMoney(t.fees)}</td><td>${t.exit_reason}</td></tr>`));
+  }
+
+  async function loadRiskEvents() {
+    const rows = await api('/api/risk-events?limit=50');
+    const el = $('risk-body');
+    if (!rows.length) { el.innerHTML = '<div class="empty">No risk events. Good.</div>'; return; }
+    el.innerHTML = table(['When', 'Kind', 'Detail'], rows.map((e) => `<tr><td>${fmtTs(e.ts)}</td><td class="${e.kind === 'halted' || e.kind === 'error' ? 'neg' : e.kind === 'paused' ? '' : 'muted'}">${e.kind}</td><td style="text-align:left;white-space:normal">${(e.detail || '').split('\n')[0]}</td></tr>`));
+  }
+
+  const safe = (fn) => fn().catch((e) => console.warn(e.message));
+  const fast = () => { safe(loadStatus); safe(loadPositions); safe(loadSignals); };
+  const slow = () => { safe(loadTrades); safe(loadEquity); safe(loadRiskEvents); safe(loadCandles); };
+  safe(loadSymbols).then(() => { fast(); slow(); });
+  setInterval(fast, 10000);
+  setInterval(slow, 60000);
+})();
+</script>
+</body>
+</html>

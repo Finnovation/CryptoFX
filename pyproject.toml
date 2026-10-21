@@ -28,7 +28,7 @@ cryptofx = "cryptofx.cli:app"
 include = ["cryptofx*"]
 
 [tool.setuptools.package-data]
-cryptofx = ["store/*.sql", "web/static/*"]
+cryptofx = ["store/*.sql", "web/static/*", "web/static/vendor/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

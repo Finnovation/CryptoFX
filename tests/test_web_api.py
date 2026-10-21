@@ -134,3 +134,8 @@ def test_index_served(tmp_path):
     r = client.get("/")
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
     assert 'id="chart"' in r.text and "PAPER" in r.text
+    assert "lightweight-charts@4.2.0" in r.text
+    lib = client.get("/static/vendor/lightweight-charts.standalone.production.js")
+    assert lib.status_code == 200 and "Lightweight Charts" in lib.text[:300]
+    for el in ("chart", "agents", "trades", "positions", "stats", "gate", "wallet", "equity"):
+        assert f'id="{el}"' in r.text, el

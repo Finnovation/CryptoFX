@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from cryptofx.agents.indicators import bollinger, donchian, ema
 from cryptofx.data.feed import DataFeed, DataFeedError
@@ -68,6 +69,12 @@ def create_app(
     @app.get("/")
     async def index() -> FileResponse:
         return FileResponse(STATIC / "index.html", media_type="text/html")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon() -> JSONResponse:
+        return JSONResponse(None, status_code=204)
+
+    app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     @app.get("/api/symbols", dependencies=[Depends(require_token)])
     async def api_symbols() -> dict:
