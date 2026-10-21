@@ -11,7 +11,9 @@ from cryptofx.backtest.metrics import Metrics, to_table
 from cryptofx.backtest.runner import DEFAULT_WARMUP, Params, run_backtest, slice_with_warmup
 from cryptofx.backtest.walkforward import walk_forward
 from cryptofx.data.feed import DataFeed, DataFeedError
-from cryptofx.paper.trader import PaperTrader
+from cryptofx.paper.trader import STATE_RISK, PaperTrader
+from cryptofx.risk.gate import GoLiveGate
+from cryptofx.risk.manager import RiskManager, RiskState
 from cryptofx.store.db import Store
 
 DEFAULT_SYMBOLS = "BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT"
@@ -22,6 +24,8 @@ data_app = typer.Typer(help="Candle data management.")
 app.add_typer(data_app, name="data")
 paper_app = typer.Typer(help="Paper trading on live candles.")
 app.add_typer(paper_app, name="paper")
+risk_app = typer.Typer(help="Risk state management.")
+app.add_typer(risk_app, name="risk")
 
 
 def _parse_date(s: str) -> datetime:
@@ -149,6 +153,52 @@ def paper_run(
         typer.echo(f"stepped {trader.last_ts}" if stepped else "no new bar")
         return
     trader.run_forever()
+
+
+@app.command("gate")
+def gate(db: str = typer.Option("cryptofx.db")) -> None:
+    """Print the go-live checklist. Exit 1 unless every criterion passes."""
+    g = GoLiveGate(Store(db))
+    ok = True
+    for c in g.evaluate():
+        tag = "[PASS]" if c.passed else "[FAIL]"
+        typer.secho(f"{tag} {c.name:<16} actual {c.actual:<14} required {c.required}",
+                    fg=typer.colors.GREEN if c.passed else typer.colors.RED)
+        ok = ok and c.passed
+    typer.echo("gate: " + ("OPEN" if ok else "LOCKED"))
+    if not ok:
+        raise typer.Exit(code=1)
+
+
+@risk_app.command("reset")
+def risk_reset(
+    confirm: bool = typer.Option(False, "--confirm"),
+    reason: str = typer.Option("", "--reason"),
+    db: str = typer.Option("cryptofx.db"),
+) -> None:
+    """Clear a HALTED/PAUSED risk state. Requires --confirm and a written reason."""
+    if not confirm:
+        typer.secho("refusing: pass --confirm", fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+    if not reason.strip():
+        typer.secho("refusing: --reason must not be empty", fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+    store = Store(db)
+    state = store.load_state(STATE_RISK)
+    if state is None:
+        typer.secho("no risk state saved; nothing to reset", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    rm = RiskManager.from_state(state)
+    if rm.state == RiskState.ACTIVE:
+        typer.secho("risk state is active, not halted or paused; nothing to reset",
+                    fg=typer.colors.YELLOW)
+        raise typer.Exit(code=1)
+    before = len(rm.events)
+    rm.reset(reason, datetime.now(UTC))
+    with store.transaction():
+        store.append_risk_events(rm.events[before:])
+        store.save_state(STATE_RISK, rm.to_state())
+    typer.echo("risk state reset to active")
 
 
 if __name__ == "__main__":
