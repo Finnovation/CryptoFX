@@ -11,6 +11,8 @@ from cryptofx.backtest.metrics import Metrics, to_table
 from cryptofx.backtest.runner import DEFAULT_WARMUP, Params, run_backtest, slice_with_warmup
 from cryptofx.backtest.walkforward import walk_forward
 from cryptofx.data.feed import DataFeed, DataFeedError
+from cryptofx.paper.trader import PaperTrader
+from cryptofx.store.db import Store
 
 DEFAULT_SYMBOLS = "BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT"
 TARGET_LINE = "reference: target 7-9% / realistic 0-5% per month"
@@ -18,6 +20,8 @@ TARGET_LINE = "reference: target 7-9% / realistic 0-5% per month"
 app = typer.Typer(help="Multi-agent crypto trading system with hard risk limits.", no_args_is_help=True)
 data_app = typer.Typer(help="Candle data management.")
 app.add_typer(data_app, name="data")
+paper_app = typer.Typer(help="Paper trading on live candles.")
+app.add_typer(paper_app, name="paper")
 
 
 def _parse_date(s: str) -> datetime:
@@ -121,6 +125,30 @@ def backtest(
             "over just buying and holding on this data.",
             fg=typer.colors.RED,
         )
+
+
+@paper_app.command("run")
+def paper_run(
+    symbols: str = typer.Option(DEFAULT_SYMBOLS),
+    tf: str = typer.Option("1h"),
+    equity: float = typer.Option(500.0, help="Starting paper equity (ignored on resume)"),
+    warmup: int = typer.Option(DEFAULT_WARMUP),
+    db: str = typer.Option("cryptofx.db"),
+    data_root: str = typer.Option("data"),
+    exchange: str = typer.Option("binance"),
+    once: bool = typer.Option(False, "--once", help="Process at most one new bar and exit"),
+) -> None:
+    """Run the paper trader. Resumes from the database if one exists."""
+    feed = DataFeed(exchange_id=exchange, root=Path(data_root))
+    store = Store(db)
+    trader = PaperTrader(feed, store, _symbols(symbols), tf, Params(), equity, warmup=warmup,
+                         log=typer.echo)
+    trader.bootstrap()
+    if once:
+        stepped = trader.run_once()
+        typer.echo(f"stepped {trader.last_ts}" if stepped else "no new bar")
+        return
+    trader.run_forever()
 
 
 if __name__ == "__main__":
