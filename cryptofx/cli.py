@@ -1,6 +1,7 @@
 """CryptoFX command line."""
 
 import math
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -199,6 +200,28 @@ def risk_reset(
         store.append_risk_events(rm.events[before:])
         store.save_state(STATE_RISK, rm.to_state())
     typer.echo("risk state reset to active")
+
+
+@app.command("web")
+def web(
+    host: str = typer.Option("127.0.0.1"),
+    port: int = typer.Option(8000),
+    db: str = typer.Option("cryptofx.db"),
+    data_root: str = typer.Option("data"),
+    symbols: str = typer.Option(DEFAULT_SYMBOLS),
+    tf: str = typer.Option("1h"),
+    exchange: str = typer.Option("binance"),
+) -> None:
+    """Serve the dashboard. Token from CRYPTOFX_TOKEN protects /api/* when set."""
+    import uvicorn
+
+    from cryptofx.web.app import create_app
+
+    token = os.environ.get("CRYPTOFX_TOKEN") or None
+    feed = DataFeed(exchange_id=exchange, root=Path(data_root))
+    application = create_app(Store(db), feed, tf, _symbols(symbols), token=token)
+    typer.echo(f"dashboard on http://{host}:{port}  (token {'set' if token else 'not set'})")
+    uvicorn.run(application, host=host, port=port, log_level="warning")
 
 
 if __name__ == "__main__":
